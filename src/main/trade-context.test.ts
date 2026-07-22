@@ -28,4 +28,18 @@ describe('buildTradeContext', () => {
     expect(context).toContain('养老账户')
     expect(context).toContain('conservative')
   })
+
+  it('teaches the AI the writable household portfolio schema', () => {
+    const snapshot: TradeMasterSnapshot = {
+      home: '/tmp/facts', userProfile: null, loadedAt: '2026-07-20T16:00:00+08:00', errors: [], watchlist: null, goals: null, discipline: null, strategyProfile: null, evolution: null, notifications: null, automation: null, strategies: null, strategyCandidates: [],
+      portfolio: null,
+      household: null
+    }
+    const context = buildTradeContext(snapshot)
+    expect(context).toContain('household_write_rules')
+    expect(context).toContain('household/portfolio.json')
+    expect(context).toContain('transactions.json')
+    expect(context).toContain('顶层 code/name 会被页面忽略')
+    expect(context).toContain('/Users/bytedance/trade-master')
+  })
 })

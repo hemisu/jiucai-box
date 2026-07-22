@@ -15,6 +15,17 @@ describe('household-store', () => {
     expect(snapshot.accounts.find((account) => account.id === PRIMARY_ACCOUNT_ID)).toMatchObject({ totalAsset: 120000, cash: 30000, positions: [{ quantity: 100 }] })
   })
 
+  it('reads legacy AI positions that used top-level instrument fields', async () => {
+    process.env.TRADE_MASTER_HOME = await mkdtemp(join(tmpdir(), 'jiucai-household-legacy-'))
+    const snapshot = await loadHousehold({ positions: [{ code: '002074', name: '国轩高科', exchange: 'SZ', instrument_type: 'stock', quantity: 200, availableQuantity: 200, cost_price: 27.535 }] })
+    expect(snapshot.accounts.find((account) => account.id === PRIMARY_ACCOUNT_ID)?.positions[0]).toMatchObject({
+      instrument: { code: '002074', name: '国轩高科', type: 'stock', exchange: 'SZ' },
+      quantity: 200,
+      availableQuantity: 200,
+      averageCost: 27.535
+    })
+  })
+
   it('keeps managed family accounts independent and records confirmed trades', async () => {
     process.env.TRADE_MASTER_HOME = await mkdtemp(join(tmpdir(), 'jiucai-household-managed-'))
     const member = await createHouseholdMember({ name: '妈妈', relationship: '母亲', riskProfile: 'conservative' })

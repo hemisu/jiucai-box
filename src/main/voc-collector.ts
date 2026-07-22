@@ -14,6 +14,7 @@ interface CollectorState {
   completedBySource: Record<string, string[]>
   ignoredBySource: Record<string, string[]>
   checkedBySource: Record<string, string>
+  artifactMissingRetryBySource: Record<string, string[]>
 }
 interface DiscoveredItem { contentId: string; url: string; hint?: string; pinned?: boolean }
 interface DetailResult { time: string; text: string; mediaType: VocInboxItem['mediaType']; mediaUrl?: string; authorProfileId?: string; authorName?: string }
@@ -26,7 +27,8 @@ const readState = async (): Promise<CollectorState> => {
     seenBySource: stored.seenBySource || {},
     completedBySource: stored.completedBySource || {},
     ignoredBySource: stored.ignoredBySource || {},
-    checkedBySource: stored.checkedBySource || {}
+    checkedBySource: stored.checkedBySource || {},
+    artifactMissingRetryBySource: stored.artifactMissingRetryBySource || {}
   }
   const files = (await readdir(join(root(), 'events'), { recursive: true }).catch(() => []))
     .filter((file) => file.endsWith('.json'))
@@ -58,6 +60,23 @@ const needsMediaRetry = async (sourceId: string, contentId: string) => {
       const item = JSON.parse(await readFile(path, 'utf8')) as VocInboxItem
       return item.metadata?.mediaEvidenceStatus === 'failed'
     } catch { /* try the next candidate */ }
+  }
+  return false
+}
+
+const hasCollectedArtifact = async (sourceId: string, contentId: string) => {
+  const filename = `${sourceId}-${contentId}.json`
+  try { await readFile(join(root(), 'inbox', filename), 'utf8'); return true }
+  catch { /* check archived files and events below */ }
+  const archived = await readdir(join(root(), 'processed')).catch(() => [])
+  if (archived.some((name) => name.endsWith(filename))) return true
+  const eventFiles = (await readdir(join(root(), 'events'), { recursive: true }).catch(() => []))
+    .filter((file) => file.endsWith('.json'))
+  for (const file of eventFiles) {
+    try {
+      const event = JSON.parse(await readFile(join(root(), 'events', file), 'utf8')) as VocInboxItem
+      if (event.sourceId === sourceId && event.contentId === contentId) return true
+    } catch { /* malformed files are ignored by snapshot loading too */ }
   }
   return false
 }
@@ -191,9 +210,11 @@ const collectSource = async (source: VocSource, state: CollectorState) => {
   const ignored = new Set(state.ignoredBySource[source.id] || [])
   const cutoff = Date.now() - 24 * 60 * 60 * 1000
   const retryable = new Set<string>()
+  const artifactMissingRetried = new Set(state.artifactMissingRetryBySource[source.id] || [])
   for (const item of discovered) {
     if (!completed.has(item.contentId)) continue
     if (await needsMediaRetry(source.id, item.contentId)) retryable.add(item.contentId)
+    else if (!artifactMissingRetried.has(item.contentId) && !await hasCollectedArtifact(source.id, item.contentId)) retryable.add(item.contentId)
   }
   const candidates = discovered.filter((item) => (!completed.has(item.contentId) || retryable.has(item.contentId)) && !ignored.has(item.contentId))
   let consecutiveOlder = 0
@@ -205,6 +226,7 @@ const collectSource = async (source: VocSource, state: CollectorState) => {
     try {
       const content = await readDetail(source, item, cutoff)
       if (!content) continue
+      if (completed.has(item.contentId) && !artifactMissingRetried.has(item.contentId)) artifactMissingRetried.add(item.contentId)
       completed.add(item.contentId)
       if (isWithinVocLookback(content.publishedAt, cutoff)) {
         await writeJson(join(root(), 'inbox', `${source.id}-${item.contentId}.json`), content)
@@ -220,6 +242,7 @@ const collectSource = async (source: VocSource, state: CollectorState) => {
   state.seenBySource[source.id] = [...new Set([...discovered.map((item) => item.contentId), ...seen])].slice(0, 100)
   state.completedBySource[source.id] = [...completed].slice(-100)
   state.ignoredBySource[source.id] = [...ignored].slice(-100)
+  state.artifactMissingRetryBySource[source.id] = [...artifactMissingRetried].slice(-100)
   state.checkedBySource[source.id] = new Date().toISOString()
   await updateVocSourceHealth(source.id, { status: errors.length ? 'error' : 'ready', lastCheckedAt: state.checkedBySource[source.id], lastError: errors.length ? `24 小时回溯跳过 ${errors.length} 条：${errors.slice(0, 2).join('；')}` : undefined })
 }

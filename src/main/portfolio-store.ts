@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import type { Instrument, TradeRecordInput } from '../shared/types'
 
 interface RawPosition {
-  instrument: Instrument
+  instrument?: Instrument
   quantity: number
   available_quantity: number
   average_cost: number | null
@@ -45,8 +45,26 @@ export const recordConfirmedTrade = async (trade: TradeRecordInput, instrument: 
   let portfolio: PortfolioFile = { schema_version: 1, positions: [], pending_events: [], conflicts: [], historical_order_events: [] }
   try { portfolio = JSON.parse(await readFile(target, 'utf8')) as PortfolioFile }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-  const positions = [...(portfolio.positions || [])]
-  const index = positions.findIndex((position) => position.instrument.code === trade.code)
+  const positions = (portfolio.positions || []).map((position) => {
+    if (position.instrument?.code && position.instrument.name) return position
+    const code = String(position.code || '').trim()
+    const name = String(position.name || '').trim()
+    if (!/^\d{6}$/.test(code) || !name) return position
+    const type: Instrument['type'] = position.instrument_type === 'etf' || position.instrumentType === 'etf'
+      ? 'etf'
+      : position.instrument_type === 'cbond' || position.instrumentType === 'cbond' ? 'cbond' : 'stock'
+    const exchange: Instrument['exchange'] = position.exchange === 'SZ' || position.exchange === 'BJ' ? position.exchange : 'SH'
+    return {
+      ...position,
+      instrument: { code, name, type, exchange },
+      available_quantity: Number(position.available_quantity ?? position.availableQuantity ?? 0),
+      average_cost: typeof position.average_cost === 'number'
+        ? position.average_cost
+        : Number(position.cost_price ?? position.costPrice ?? position.cost) || null,
+      status: position.status === 'closed' ? 'closed' : position.status === 'pending' ? 'pending' : 'confirmed'
+    }
+  })
+  const index = positions.findIndex((position) => position.instrument?.code === trade.code)
   const current = index >= 0 ? positions[index] : null
   if (trade.side === 'sell' && (!current || current.quantity < trade.quantity)) throw new Error(`卖出数量超过确认持仓，当前最多 ${current?.quantity || 0}`)
 

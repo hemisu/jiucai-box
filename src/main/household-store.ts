@@ -55,18 +55,23 @@ const loadStored = async (): Promise<StoredHousehold> => {
 const primaryPositions = (portfolio: unknown): HouseholdPosition[] => {
   const raw = portfolio as PrimaryPortfolio | null
   return (raw?.positions || []).flatMap((position) => {
-    const instrument = position.instrument as Partial<Instrument> | undefined
-    if (!instrument?.code || !instrument.name) return []
+    const nested = position.instrument as Partial<Instrument> | undefined
+    const code = String(nested?.code || position.code || '').trim()
+    const name = String(nested?.name || position.name || '').trim()
+    if (!/^\d{6}$/.test(code) || !name) return []
+    const rawType = nested?.type || position.instrument_type || position.instrumentType
+    const rawExchange = nested?.exchange || position.exchange
+    const averageCost = position.average_cost ?? position.averageCost ?? position.cost_price ?? position.costPrice ?? position.cost
     return [{
       instrument: {
-        code: instrument.code,
-        name: instrument.name,
-        type: instrument.type === 'stock' || instrument.type === 'etf' ? instrument.type : 'cbond',
-        exchange: instrument.exchange === 'SZ' || instrument.exchange === 'BJ' ? instrument.exchange : 'SH'
+        code,
+        name,
+        type: rawType === 'etf' || rawType === 'cbond' ? rawType : 'stock',
+        exchange: rawExchange === 'SZ' || rawExchange === 'BJ' ? rawExchange : 'SH'
       },
       quantity: Number(position.quantity || 0),
-      availableQuantity: Number(position.available_quantity || 0),
-      averageCost: typeof position.average_cost === 'number' ? position.average_cost : null,
+      availableQuantity: Number(position.available_quantity ?? position.availableQuantity ?? 0),
+      averageCost: typeof averageCost === 'number' ? averageCost : null,
       status: position.status === 'closed' ? 'closed' : position.status === 'pending' ? 'pending' : 'confirmed'
     }]
   })

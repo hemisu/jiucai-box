@@ -138,7 +138,10 @@ const registerIpc = (): void => {
         loadChatSession(sessionId).catch(() => null)
       ])
       const resolvedConfig = { ...savedConfig, ...config, apiKey: config.apiKey ?? savedConfig.apiKey }
-      const context = { role: 'system', content: `以下是用户当前确认过的交易记录。只能基于这些记录回答；缺失或冲突必须明确说“需要确认”，不得把已经结束的历史交易当成当前持仓。家庭持仓必须按成员和账户分别分析，不能合并不同人的成本、数量和策略；portfolio 与 household_portfolios 中 source=primary 是同一主账户，只计算一次。${MULTI_ACCOUNT_OUTPUT_INSTRUCTION} daily_account_state 是当前交易日已确认状态，已确认字段不得重复询问或重新标成待确认，只能指出仍缺失的单独字段：\n${buildTradeContext(snapshot)}` }
+      const writeCapability = resolvedConfig.provider === 'codex-local'
+        ? '当前使用本机 Codex，可在 fact_home 工作目录内修改本地交易 JSON；修改家庭持仓必须严格遵守 household_write_rules，写完要验证 JSON 并说明实际改动。'
+        : '当前 AI 渠道没有本地文件写入能力；可以教用户去“家庭持仓 → 记一笔成交”录入，或给出应写入的 JSON，但不得声称已经修改文件。'
+      const context = { role: 'system', content: `以下是用户当前确认过的交易记录。只能基于这些记录回答；缺失或冲突必须明确说“需要确认”，不得把已经结束的历史交易当成当前持仓。家庭持仓必须按成员和账户分别分析，不能合并不同人的成本、数量和策略；portfolio 与 household_portfolios 中 source=primary 是同一主账户，只计算一次。${MULTI_ACCOUNT_OUTPUT_INSTRUCTION} daily_account_state 是当前交易日已确认状态，已确认字段不得重复询问或重新标成待确认，只能指出仍缺失的单独字段。${writeCapability}\n${buildTradeContext(snapshot)}` }
       const stockCardContext = { role: 'system', content: STOCK_CARD_INSTRUCTION }
       const latestQuestion = [...messages].reverse().find((message) => message.role === 'user')?.content || ''
       const memory = await buildMemoryContext(latestQuestion, session?.memories)
