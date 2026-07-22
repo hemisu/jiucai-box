@@ -86,6 +86,7 @@ const createWindow = (): void => {
   })
   if (process.env.ELECTRON_RENDERER_URL) mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   else mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  mainWindow.on('closed', () => { mainWindow = null })
 }
 
 const createTray = (): void => {
@@ -93,8 +94,8 @@ const createTray = (): void => {
   tray.setToolTip(`${APP_NAME} · 安心交易助手`)
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: `打开${APP_NAME}`, click: () => { mainWindow?.show(); mainWindow?.focus() } },
-    { label: '盘前策略', click: () => mainWindow?.webContents.send('navigate', 'chat') },
-    { label: '家庭持仓', click: () => mainWindow?.webContents.send('navigate', 'portfolio') },
+    { label: '盘前策略', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('navigate', 'chat') } },
+    { label: '家庭持仓', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('navigate', 'portfolio') } },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() }
   ]))
@@ -431,8 +432,12 @@ app.whenReady().then(async () => {
   registerIpc()
   onChatSessionChanged(broadcastChatSessionChanged)
   createWindow()
-  onUpdateStatus((status) => mainWindow?.webContents.send('updates:status-changed', status))
-  onFeishuConversationStatus((status) => mainWindow?.webContents.send('notifications:conversation-status-changed', status))
+  onUpdateStatus((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:status-changed', status)
+  })
+  onFeishuConversationStatus((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('notifications:conversation-status-changed', status)
+  })
   setTimeout(() => void checkForAppUpdates().catch(() => undefined), 5000)
   createTray()
   await runTradeMaster('automation', ['sync-defaults']).catch(() => undefined)
